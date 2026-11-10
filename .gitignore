@@ -1,0 +1,28 @@
+# Arquivos temporários
+*.log
+*.tmp
+*.bak
+*.old
+
+# Configurações e credenciais
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.pfx
+
+# Configurações locais do Protheus
+appserver.ini
+smartclient.ini
+
+# Arquivos temporários de desenvolvimento
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Arquivos compactados e backups
+*.zip
+*.rar
+*.7z
