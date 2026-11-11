@@ -176,26 +176,38 @@ Return
 
 Static Function GetxDados()
 
+	Local lTemCliOP := .F.
+
 	SC2->(DbSetOrder(1))
 	SC2->(DbSeek(xFilial("SC2") + SH6->H6_OP))
 
-	SA1->(DbSetOrder(1))
-	SA1->(DbSeek(xFilial("SA1") + SC2->C2_XCLIENT + SC2->C2_XLOJA))
+	lTemCliOP := ! Empty(SC2->C2_XCLIENT)
 
 	SB1->(DbSetOrder(1))
 	SB1->(DbSeek(xFilial("SB1") + SH6->H6_PRODUTO))
 
 	// Produto x Cliente (SA7) - para pegar o código do produto no cliente
-	// Chave: Produto + Cliente + Loja (usando os dados do SC2/SA1 já posicionados)
-	BeginSql Alias 'TMPSA7'
-		SELECT SA7.R_E_C_N_O_ AS RECNOSA7
-		  FROM %TABLE:SA7% SA7
-		 WHERE SA7.A7_FILIAL  = %xFilial:SA7%
-		   AND SA7.A7_PRODUTO = %Exp:SH6->H6_PRODUTO%
-		   AND SA7.A7_CLIENTE = %Exp:SC2->C2_XCLIENT%
-		   AND SA7.A7_LOJA    = %Exp:SC2->C2_XLOJA%
-		   AND SA7.%NOTDEL%
-	EndSQL
+	// Se a OP tem cliente: filtra SA7 por produto + cliente + loja
+	// Se a OP é para estoque (sem cliente): busca qualquer vínculo SA7 pelo produto
+	If lTemCliOP
+		BeginSql Alias 'TMPSA7'
+			SELECT SA7.R_E_C_N_O_ AS RECNOSA7
+			  FROM %TABLE:SA7% SA7
+			 WHERE SA7.A7_FILIAL  = %xFilial:SA7%
+			   AND SA7.A7_PRODUTO = %Exp:SH6->H6_PRODUTO%
+			   AND SA7.A7_CLIENTE = %Exp:SC2->C2_XCLIENT%
+			   AND SA7.A7_LOJA    = %Exp:SC2->C2_XLOJA%
+			   AND SA7.%NOTDEL%
+		EndSQL
+	Else
+		BeginSql Alias 'TMPSA7'
+			SELECT SA7.R_E_C_N_O_ AS RECNOSA7
+			  FROM %TABLE:SA7% SA7
+			 WHERE SA7.A7_FILIAL  = %xFilial:SA7%
+			   AND SA7.A7_PRODUTO = %Exp:SH6->H6_PRODUTO%
+			   AND SA7.%NOTDEL%
+		EndSQL
+	EndIf
 
 	If ! TMPSA7->(Eof())
 		SA7->(DbGoTo(TMPSA7->RECNOSA7))
@@ -204,6 +216,16 @@ Static Function GetxDados()
 	EndIf
 
 	TMPSA7->(DbCloseArea())
+
+	// Posiciona SA1:
+	// - Se a OP tem cliente: usa o cliente da OP (SC2)
+	// - Senão, se a SA7 encontrou vínculo: usa o cliente da SA7 (fallback)
+	SA1->(DbSetOrder(1))
+	If lTemCliOP
+		SA1->(DbSeek(xFilial("SA1") + SC2->C2_XCLIENT + SC2->C2_XLOJA))
+	ElseIf ! Empty(SA7->A7_CLIENTE)
+		SA1->(DbSeek(xFilial("SA1") + SA7->A7_CLIENTE + SA7->A7_LOJA))
+	EndIf
 
 	BeginSql Alias 'TMPSD3'
 		SELECT SD3.R_E_C_N_O_ AS RECNOSD3
@@ -227,8 +249,11 @@ Static Function ImpArea()
 Local aProd
 Local cAux
 Local cDesc
+Local cUM
 Local nI
 Local nLinTmp
+Local nPesoB
+Local nPesoL
 
 // Fontes específicas do novo layout
 Local oArial11N	:= TFont():New("Arial",,11,,.t.,,,,,.f.,.f.)
@@ -273,6 +298,19 @@ Local nYDescr    := 655    // fim da Descrição (145px)
 Local nYPesos    := 755    // fim da seção de Pesos
 Local nYDados    := 925    // fim da seção Dados Técnicos
                            // lote: 1159 - 925 = 234px
+
+	// ===== REGRAS CONDICIONAIS BASEADAS NA SA7 =====
+	// Se A7_XDESCEX preenchido: pesos convertidos para KG (x1000)
+	// Caso contrário: pesos nativos com UM do SB1
+	If ! Empty(RTrim(SA7->A7_XDESCEX))
+		cUM    := "KG"
+		nPesoB := SH6->H6_XPESOB * 1000
+		nPesoL := SH6->H6_XPESOL * 1000
+	Else
+		cUM    := AllTrim(SB1->B1_UM)
+		nPesoB := SH6->H6_XPESOB
+		nPesoL := SH6->H6_XPESOL
+	EndIf
 
 	// ===== FRAME EXTERNO =====
 	oPrinter:Line(nLinIni, nColIni, nLinIni, nColFim, ,"-9")         // topo
@@ -353,7 +391,12 @@ Local nYDados    := 925    // fim da seção Dados Técnicos
 	// ============ SEÇÃO 5: DESCRIÇÃO DO PRODUTO (até 150 car.) ============
 	oPrinter:Say(nYCodigos + 30, nColTexto, "DESCRIÇÃO DO PRODUTO:", oArial22N)
 
-	cDesc := RTrim(SB1->B1_DESC)
+	// Descrição: prioriza A7_XDESCEX (descrição customizada do cliente)
+	// Se vazia, cai para SB1->B1_DESC (descrição padrão)
+	cDesc := RTrim(SA7->A7_XDESCEX)
+	If Empty(cDesc)
+		cDesc := RTrim(SB1->B1_DESC)
+	EndIf
 	// Quebra em linhas de ~80 chars (usa toda a largura da seção, até a borda direita)
 	// Até 4 linhas = capacidade de ~320 chars
 	aProd := QBTexto(cDesc, 80, " ")
@@ -370,17 +413,17 @@ Local nYDados    := 925    // fim da seção Dados Técnicos
 	oPrinter:Line(nYDescr, nColMeia, nYPesos, nColMeia, ,"-9")
 
 	// --- Peso Bruto (esquerda) + barcode ---
-	// Texto exibido: valor + unidade de medida (SB1->B1_UM)
+	// nPesoB e cUM foram pré-computados no topo (x1000 e "KG" quando A7_XDESCEX preenchido)
 	// Barcode leitura: apenas o valor numérico (sem UM) para não quebrar o scanner
 	oPrinter:Say(nYDescr + 25, nColTexto, "PESO BRUTO:", oArial22N)
-	cAux := AllTrim(Transform(SH6->H6_XPESOB, RTrim(GetSX3Cache("H6_XPESOB", "X3_PICTURE"))))
-	oPrinter:Say(nYDescr + 60, nColTexto, cAux + " " + AllTrim(SB1->B1_UM), oArial26N)
+	cAux := AllTrim(Transform(nPesoB, RTrim(GetSX3Cache("H6_XPESOB", "X3_PICTURE"))))
+	oPrinter:Say(nYDescr + 60, nColTexto, cAux + " " + cUM, oArial26N)
 	oPrinter:FWMSBar("CODE128", (nYDescr + 25) / nRazao, (nColTexto + 170) / nRazaoCol, cAux, oPrinter, , , , , 1.5, .F., "Arial", , .F., , , .F.)
 
 	// --- Peso Líquido (direita) + barcode ---
 	oPrinter:Say(nYDescr + 25, nColMeia + 15, "PESO LÍQUIDO:", oArial22N)
-	cAux := AllTrim(Transform(SH6->H6_XPESOL, RTrim(GetSX3Cache("H6_XPESOL", "X3_PICTURE"))))
-	oPrinter:Say(nYDescr + 60, nColMeia + 15, cAux + " " + AllTrim(SB1->B1_UM), oArial26N)
+	cAux := AllTrim(Transform(nPesoL, RTrim(GetSX3Cache("H6_XPESOL", "X3_PICTURE"))))
+	oPrinter:Say(nYDescr + 60, nColMeia + 15, cAux + " " + cUM, oArial26N)
 	oPrinter:FWMSBar("CODE128", (nYDescr + 25) / nRazao, (nColMeia + 180) / nRazaoCol, cAux, oPrinter, , , , , 1.5, .F., "Arial", , .F., , , .F.)
 
 	oPrinter:Line(nYPesos, nColIni, nYPesos, nColFim, ,"-9")
@@ -396,9 +439,15 @@ Local nYDados    := 925    // fim da seção Dados Técnicos
 	oPrinter:Say(nYPesos + 60, nColTexto, cAux, oArial22N)
 
 	oPrinter:Say(nYPesos + 100, nColTexto, "GRAMATURA:", oArial17N)
-	cAux := AllTrim(Transform(SB1->B1_XGRAM1, RTrim(GetSX3Cache("B1_XGRAM1", "X3_PICTURE")))) + " + "
-	cAux += AllTrim(Transform(SB1->B1_XGRAM2, RTrim(GetSX3Cache("B1_XGRAM2", "X3_PICTURE")))) + " + "
-	cAux += AllTrim(Transform(SB1->B1_XGRAM3, RTrim(GetSX3Cache("B1_XGRAM3", "X3_PICTURE"))))
+	// Se tem código do produto no cliente (A7_CODCLI): mostra somatório
+	// Caso contrário: mostra o breakdown (GRAM1 + GRAM2 + GRAM3)
+	If ! Empty(RTrim(SA7->A7_CODCLI))
+		cAux := AllTrim(Transform(SB1->B1_XGRAM1 + SB1->B1_XGRAM2 + SB1->B1_XGRAM3, RTrim(GetSX3Cache("B1_XGRAM1", "X3_PICTURE"))))
+	Else
+		cAux := AllTrim(Transform(SB1->B1_XGRAM1, RTrim(GetSX3Cache("B1_XGRAM1", "X3_PICTURE")))) + " + "
+		cAux += AllTrim(Transform(SB1->B1_XGRAM2, RTrim(GetSX3Cache("B1_XGRAM2", "X3_PICTURE")))) + " + "
+		cAux += AllTrim(Transform(SB1->B1_XGRAM3, RTrim(GetSX3Cache("B1_XGRAM3", "X3_PICTURE"))))
+	EndIf
 	oPrinter:Say(nYPesos + 135, nColTexto, cAux, oArial22N)
 
 	// --- Direita: Grade 3x2 (Origem/Qtde/QtdeM² e Fabricação/Prox/Operador) ---

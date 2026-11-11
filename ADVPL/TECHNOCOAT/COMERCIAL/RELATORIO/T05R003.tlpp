@@ -1,0 +1,224 @@
+#Include "tlpp-core.th"
+
+#Define CRLF Chr(13) + Chr(10)
+
+/*/{Protheus.doc} T05R003
+Relatorio de pedidos de venda
+@type function
+@version 1.2
+@author Pedro Montenegro
+@since 24/07/2026
+@return variant, return variant
+/*/
+User Function T05R003(aResps As Array) As Variant
+Local oReport As Object
+Local cPerg := "T05R003"
+
+	ValPerg(cPerg)
+	Pergunte(cPerg, .F.)
+
+    oReport := ReportDef(aResps)
+    oReport:PrintDialog()
+    oReport:FreeAllObjs()
+
+    FreeObj(oReport)
+Return Nil
+
+/**/
+Static Function ReportDef(aResps As Array) As Object
+Local cAlias := GetNextAlias() As Character
+Local cTitle := "Relatorio Pedidos a Faturar" As Character
+Local oReport As Object
+Local oSection1 As Object
+
+    oReport:= TReport():New("T05R003", cTitle, "T05R003", ;
+                            {|oReport| ReportPrint(oReport, aResps, cAlias)}, ;
+                            "Relatorio Pedidos a Faturar")
+
+    oReport:SetLandscape()
+
+    oSection1:= TRSection():New(oReport, "Pedidos a Faturar", {cAlias}, /* <aOrder> */ ,;
+								 /* <.lLoadCells.> */ , , /* <cTotalText>  */, /* !<.lTotalInCol.>  */, /* <.lHeaderPage.>  */,;
+								 /* <.lHeaderBreak.> */, /* <.lPageBreak.>  */, /* <.lLineBreak.>  */, /* <nLeftMargin>  */,;
+								 /* <.lLineStyle.>  */, /* <nColSpace>  */,.T. /*<.lAutoSize.> */, /*<cSeparator> */,;
+								 /*<nLinesBefore>  */, /*<nCols>  */, /* <nClrBack> */, /* <nClrFore>  */)
+
+    TRCell():New(oSection1, "C5_FILIAL", cAlias, "Filial", GetSX3Cache("C5_FILIAL", "X3_PICTURE"), GetSX3Cache("C5_FILIAL", "X3_TAMANHO"))
+    TRCell():New(oSection1, "C5_NUM", cAlias, "Pedido", GetSX3Cache("C5_NUM", "X3_PICTURE"), GetSX3Cache("C5_NUM", "X3_TAMANHO"))
+    TRCell():New(oSection1, "C5_CLIENTE", cAlias, "Cliente", GetSX3Cache("C5_CLIENTE", "X3_PICTURE"), GetSX3Cache("C5_CLIENTE", "X3_TAMANHO"))
+    TRCell():New(oSection1, "C5_LOJACLI", cAlias, "Loja", GetSX3Cache("C5_LOJACLI", "X3_PICTURE"), GetSX3Cache("C5_LOJACLI", "X3_TAMANHO"))
+    TRCell():New(oSection1, "A1_NOME", cAlias, "Nome Cliente", GetSX3Cache("A1_NOME", "X3_PICTURE"), GetSX3Cache("A1_NOME", "X3_TAMANHO"))
+
+    TRCell():New(oSection1, "C5_EMISSAO", cAlias, "Emissao", GetSX3Cache("C5_EMISSAO", "X3_PICTURE"), GetSX3Cache("C5_EMISSAO", "X3_TAMANHO"))
+    TRCell():New(oSection1, "C5_VEND1", cAlias, "Vendedor", GetSX3Cache("C5_VEND1", "X3_PICTURE"), GetSX3Cache("C5_VEND1", "X3_TAMANHO"))
+    TRCell():New(oSection1, "A3_NOME", cAlias, "Nome Vendedor", GetSX3Cache("A3_NOME", "X3_PICTURE"), GetSX3Cache("A3_NOME", "X3_TAMANHO"))
+    TRCell():New(oSection1, "C6_ITEM", cAlias, "Item PV", GetSX3Cache("C6_ITEM", "X3_PICTURE"), GetSX3Cache("C6_ITEM", "X3_TAMANHO"))
+    TRCell():New(oSection1, "C6_PRODUTO", cAlias, "Produto", GetSX3Cache("C6_PRODUTO", "X3_PICTURE"), GetSX3Cache("C6_PRODUTO", "X3_TAMANHO"))
+    TRCell():New(oSection1, "B1_DESC", cAlias, "Descricao Produto", GetSX3Cache("B1_DESC", "X3_PICTURE"), GetSX3Cache("B1_DESC", "X3_TAMANHO"))
+
+    // Estoque separado por armazem
+    TRCell():New(oSection1, "QATU_04" , cAlias, "Estoque 04", GetSX3Cache("B2_QATU", "X3_PICTURE"), GetSX3Cache("B2_QATU", "X3_TAMANHO"))
+    TRCell():New(oSection1, "RESER_04", cAlias, "Reserva 04", GetSX3Cache("B2_RESERVA", "X3_PICTURE"), GetSX3Cache("B2_RESERVA", "X3_TAMANHO"))
+    TRCell():New(oSection1, "QATU_05" , cAlias, "Estoque 05", GetSX3Cache("B2_QATU", "X3_PICTURE"), GetSX3Cache("B2_QATU", "X3_TAMANHO"))
+    TRCell():New(oSection1, "RESER_05", cAlias, "Reserva 05", GetSX3Cache("B2_RESERVA", "X3_PICTURE"), GetSX3Cache("B2_RESERVA", "X3_TAMANHO"))
+    TRCell():New(oSection1, "QATU_07" , cAlias, "Estoque 07", GetSX3Cache("B2_QATU", "X3_PICTURE"), GetSX3Cache("B2_QATU", "X3_TAMANHO"))
+    TRCell():New(oSection1, "RESER_07", cAlias, "Reserva 07", GetSX3Cache("B2_RESERVA", "X3_PICTURE"), GetSX3Cache("B2_RESERVA", "X3_TAMANHO"))
+
+    TRCell():New(oSection1, "C6_QTDVEN", cAlias, "Vendido", GetSX3Cache("C6_QTDVEN", "X3_PICTURE"), GetSX3Cache("C6_QTDVEN", "X3_TAMANHO"))
+    TRCell():New(oSection1, "C6_QTDENT", cAlias, "Atendido", GetSX3Cache("C6_QTDENT", "X3_PICTURE"), GetSX3Cache("C6_QTDENT", "X3_TAMANHO"))
+    TRCell():New(oSection1, "SALDO_PV", cAlias, "Saldo", GetSX3Cache("C6_QTDVEN", "X3_PICTURE"), GetSX3Cache("C6_QTDVEN", "X3_TAMANHO"))
+    TRCell():New(oSection1, "ESTOQUE_98", cAlias, "Estoque 98", GetSX3Cache("B2_QATU", "X3_PICTURE"), GetSX3Cache("B2_QATU", "X3_TAMANHO"))
+    TRCell():New(oSection1, "ESTOQUE_CD", cAlias, "Estoque CD", GetSX3Cache("B2_QATU", "X3_PICTURE"), GetSX3Cache("B2_QATU", "X3_TAMANHO"))
+    TRCell():New(oSection1, "C5_TPFRETE", cAlias, "Frete C/F", GetSX3Cache("C5_TPFRETE", "X3_PICTURE"), GetSX3Cache("C5_TPFRETE", "X3_TAMANHO"))
+    TRCell():New(oSection1, "C6_NUMPCOM", cAlias, "Ordem Compra", GetSX3Cache("C6_NUMPCOM", "X3_PICTURE"), GetSX3Cache("C6_NUMPCOM", "X3_TAMANHO"))
+    TRCell():New(oSection1, "C5_XOBSINT", cAlias, "Observacao", GetSX3Cache("C5_XOBSINT", "X3_PICTURE"), 30)
+    TRCell():New(oSection1, "C2_QUANT", cAlias, "Qtd. OP", GetSX3Cache("C2_QUANT", "X3_PICTURE"), GetSX3Cache("C2_QUANT", "X3_TAMANHO"))
+    TRCell():New(oSection1, "C6_PRUNIT", cAlias, "Valor Unitario", GetSX3Cache("C6_PRUNIT", "X3_PICTURE"), GetSX3Cache("C6_PRUNIT", "X3_TAMANHO"))
+    TRCell():New(oSection1, "C6_VALOR", cAlias, "Total", GetSX3Cache("C6_VALOR", "X3_PICTURE"), GetSX3Cache("C6_VALOR", "X3_TAMANHO"))
+    TRCell():New(oSection1, "C6_ENTREG", cAlias, "Entrega", GetSX3Cache("C6_ENTREG", "X3_PICTURE"), GetSX3Cache("C6_ENTREG", "X3_TAMANHO"))
+Return oReport
+
+/**/
+Static Function ReportPrint(oReport As Object, aResps As Array, cAlias As Character) As Variant
+Local cQuery As Character
+Local oSection1 := oReport:Section(1)
+
+    If Select(cAlias) > 0
+        (cAlias)->(DBCloseArea())
+    EndIf
+
+    cQuery := "SELECT C5_FILIAL, C5_NUM, C5_CLIENTE, C5_LOJACLI, " + CRLF
+    cQuery += "       A1_NOME,  " + CRLF
+    cQuery += "	   C5_EMISSAO, C5_VEND1, A3_NOME, " + CRLF
+    cQuery += "	   C6_ITEM, C6_PRODUTO, " + CRLF
+    cQuery += "	   B1_DESC, " + CRLF
+    cQuery += "	   COALESCE((SELECT SUM(B2_QATU) FROM " + RetSqlName("SB2") + " F1 " + CRLF
+    cQuery += "	     WHERE B2_FILIAL = '0101001' AND B2_COD = C6_PRODUTO AND B2_LOCAL = '04' AND F1.D_E_L_E_T_ != '*'), 0) AS QATU_04, " + CRLF
+    cQuery += "	   COALESCE((SELECT SUM(B2_RESERVA) FROM " + RetSqlName("SB2") + " F2 " + CRLF
+    cQuery += "	     WHERE B2_FILIAL = '0101001' AND B2_COD = C6_PRODUTO AND B2_LOCAL = '04' AND F2.D_E_L_E_T_ != '*'), 0) AS RESER_04, " + CRLF
+    cQuery += "	   COALESCE((SELECT SUM(B2_QATU) FROM " + RetSqlName("SB2") + " F3 " + CRLF
+    cQuery += "	     WHERE B2_FILIAL = '0101001' AND B2_COD = C6_PRODUTO AND B2_LOCAL = '05' AND F3.D_E_L_E_T_ != '*'), 0) AS QATU_05, " + CRLF
+    cQuery += "	   COALESCE((SELECT SUM(B2_RESERVA) FROM " + RetSqlName("SB2") + " F4 " + CRLF
+    cQuery += "	     WHERE B2_FILIAL = '0101001' AND B2_COD = C6_PRODUTO AND B2_LOCAL = '05' AND F4.D_E_L_E_T_ != '*'), 0) AS RESER_05, " + CRLF
+    cQuery += "	   COALESCE((SELECT SUM(B2_QATU) FROM " + RetSqlName("SB2") + " F5 " + CRLF
+    cQuery += "	     WHERE B2_FILIAL = '0101001' AND B2_COD = C6_PRODUTO AND B2_LOCAL = '07' AND F5.D_E_L_E_T_ != '*'), 0) AS QATU_07, " + CRLF
+    cQuery += "	   COALESCE((SELECT SUM(B2_RESERVA) FROM " + RetSqlName("SB2") + " F6 " + CRLF
+    cQuery += "	     WHERE B2_FILIAL = '0101001' AND B2_COD = C6_PRODUTO AND B2_LOCAL = '07' AND F6.D_E_L_E_T_ != '*'), 0) AS RESER_07, " + CRLF
+    cQuery += "	   C6_QTDVEN, C6_QTDENT, C6_QTDVEN - C6_QTDENT AS SALDO_PV, " + CRLF
+    cQuery += "	   (SELECT SUM(B2_QATU)  " + CRLF
+    cQuery += "	      FROM " + RetSqlName("SB2") + " G  " + CRLF
+    cQuery += "		 WHERE B2_FILIAL = C6_FILIAL AND B2_COD = C6_PRODUTO AND B2_LOCAL = '98' AND G.D_E_L_E_T_ != '*') AS ESTOQUE_98, " + CRLF
+    cQuery += "	   (SELECT SUM(B2_QATU)  " + CRLF
+    cQuery += "	      FROM " + RetSqlName("SB2") + " H  " + CRLF
+    cQuery += "		 WHERE B2_FILIAL = '0101006' AND B2_COD = C6_PRODUTO AND B2_LOCAL != 'BL' AND H.D_E_L_E_T_ != '*') AS ESTOQUE_CD, " + CRLF
+    cQuery += "	    C5_TPFRETE, " + CRLF
+    cQuery += "		C6_NUMPCOM, " + CRLF
+    cQuery += "		LPAD(C5_XOBSINT, 30) AS C5_XOBSINT, " + CRLF
+    cQuery += "       (SELECT SUM(C2_QUANT - C2_QUJE) " + CRLF
+    cQuery += "          FROM " + RetSqlName("SC2") + " I " + CRLF
+    cQuery += "         WHERE C2_FILIAL = C6_FILIAL " + CRLF
+    cQuery += "           AND C2_PRODUTO = C6_PRODUTO " + CRLF
+    cQuery += "           AND C2_STATUS = 'N' " + CRLF
+    cQuery += "           AND C2_TPOP = 'F' " + CRLF
+    cQuery += "           AND C2_QUANT - C2_QUJE > 0 " + CRLF
+    cQuery += "           AND I.D_E_L_E_T_ != '*') AS C2_QUANT, " + CRLF
+    cQuery += "		C6_PRUNIT, C6_VALOR, C6_ENTREG " + CRLF
+    cQuery += "  FROM " + RetSqlName("SC5") + " A  " + CRLF
+    cQuery += "  JOIN " + RetSqlName("SC6") + " D ON D.C6_FILIAL = C5_FILIAL AND D.C6_NUM = C5_NUM AND C6_QTDVEN - C6_QTDENT > 0 AND C6_QTDENT = 0 AND C6_NOTA = ' ' AND D.D_E_L_E_T_ != '*' " + CRLF
+    cQuery += "  JOIN " + RetSqlName("SA1") + " B ON A1_FILIAL = '" + FWxFilial("SA1") + "' AND A1_COD = C5_CLIENTE AND A1_LOJA = C5_LOJACLI AND B.D_E_L_E_T_ != '*' " + CRLF
+    cQuery += "  LEFT JOIN " + RetSqlName("SA3") + " C ON A3_FILIAL = LPAD(C5_FILIAL, 4) || '   ' AND A3_COD = C5_VEND1 AND C.D_E_L_E_T_ != '*'   " + CRLF
+    cQuery += "  JOIN " + RetSqlName("SB1") + " E ON B1_FILIAL = '" + FWxFilial("SB1") + "' AND B1_COD = C6_PRODUTO AND E.D_E_L_E_T_ != '*' " + CRLF
+    cQuery += "  LEFT JOIN " + RetSqlName("SC9") + " J ON C9_FILIAL = C6_FILIAL AND C9_CLIENTE = C5_CLIENTE AND C9_LOJA = C5_LOJACLI AND C9_PEDIDO = C6_NUM AND C9_ITEM = C6_ITEM AND J.D_E_L_E_T_ != '*' " + CRLF
+    cQuery += " WHERE C5_FILIAL >= '       ' " + CRLF
+    cQuery += "   AND C5_FILIAL <= 'ZZZZZZZ' " + CRLF
+    cQuery += "   AND C5_NOTA = ' ' " + CRLF
+
+
+    If !Empty(MV_PAR01)
+        cQuery += "   AND C5_NUM >= '" + MV_PAR01 + "' " + CRLF
+    EndIf
+
+    If !Empty(MV_PAR02)
+        cQuery += "   AND C5_NUM <= '" + MV_PAR02 + "' " + CRLF
+    EndIf
+
+    If !Empty(MV_PAR03)
+        cQuery += "   AND C6_PRODUTO >= '" + MV_PAR03 + "' " + CRLF
+    EndIf
+
+    If !Empty(MV_PAR04)
+        cQuery += "   AND C6_PRODUTO <= '" + MV_PAR04 + "' " + CRLF
+    EndIf
+
+    If !Empty(MV_PAR05)
+        If MV_PAR05 != 1
+            cQuery += "   AND COALESCE(C9_BLEST, 'XX') = '  ' " + CRLF
+            cQuery += "   AND COALESCE(C9_BLCRED, 'XX') = '  ' " + CRLF
+        EndIf
+    EndIf
+
+    If !Empty(MV_PAR06)
+        cQuery += "   AND C5_EMISSAO >= '" + Dtos(MV_PAR06) + "' " + CRLF
+    EndIf
+
+    If !Empty(MV_PAR07)
+        cQuery += "   AND C5_EMISSAO <= '" + Dtos(MV_PAR07) + "' " + CRLF
+    EndIf
+
+    If !Empty(MV_PAR08)
+        cQuery += "   AND C6_ENTREG >= '" + Dtos(MV_PAR08) + "' " + CRLF
+    EndIf
+
+    If !Empty(MV_PAR09)
+        cQuery += "   AND C6_ENTREG <= '" + Dtos(MV_PAR09) + "' " + CRLF
+    EndIf
+
+    cQuery += "   AND A.D_E_L_E_T_ != '*' "
+
+    MPSysOpenQuery(cQuery, cAlias, {{"C5_EMISSAO", "D", 8, 0}, {"C6_ENTREG", "D", 8, 0}})
+
+    oSection1:Print()
+
+    (cAlias)->(DBCloseArea())
+Return Nil
+
+/**/
+Static Function ValPerg(cPerg)
+Local i As Numeric, j As Numeric
+Local aTRegs := {} As Array
+Local aRegs := {} As Array
+
+	cPerg := Padr(cPerg, 10)
+
+	/*01*/aAdd(aTRegs,{"Pedido De?"     ,"C", GetSX3Cache("C5_NUM", "X3_TAMANHO"), 0, 0,"G","",""     ,""          ,"","","","SC5"})
+	/*02*/aAdd(aTRegs,{"Pedido Ate?"    ,"C", GetSX3Cache("C5_NUM", "X3_TAMANHO"), 0, 0,"G","",""     ,""          ,"","","","SC5"})
+	/*03*/aAdd(aTRegs,{"Produto De?"    ,"C", GetSX3Cache("C5_NUM", "X3_TAMANHO"), 0, 0,"G","",""     ,""          ,"","","",""})
+	/*04*/aAdd(aTRegs,{"Produto Ate?"   ,"C", GetSX3Cache("C5_NUM", "X3_TAMANHO"), 0, 0,"G","",""     ,""          ,"","","",""})
+	/*05*/aAdd(aTRegs,{"Sit.Lib.Pedido?","C", 1                                  , 0, 1,"C","","Todos",""          ,"","","",""})
+	/*06*/aAdd(aTRegs,{"Dt.Emissao De?" ,"D", 10, 0, 0,"G","",""       ,""           ,"","","",""})
+	/*07*/aAdd(aTRegs,{"Dt.Emissao Ate?","D", 10, 0, 0,"G","",""       ,""           ,"","","",""})
+	/*08*/aAdd(aTRegs,{"Dt.Entrega De?" ,"D", 10, 0, 0,"G","",""       ,""           ,"","","",""})
+	/*09*/aAdd(aTRegs,{"Dt.Entrega Ate?","D", 10, 0, 0,"G","",""       ,""           ,"","","",""})
+
+	//Criar aRegs na ordem do vetor Temporario
+	For i := 1 To Len(aTRegs)
+		aAdd(aRegs,{cPerg,StrZero(i,2),aTRegs[i][1],aTRegs[i][1],aTRegs[i][1]	,"mv_ch"+Alltrim(Str(i)),aTRegs[i][2],aTRegs[i][3],aTRegs[i][4],aTRegs[i][5],aTRegs[i][6],aTRegs[i][7],;
+		"mv_par"+StrZero(i,2),aTRegs[i][8],"","","","",aTRegs[i][9],"","","","",aTRegs[i][10],"","","","",aTRegs[i][11],"","","","",aTRegs[i][12],"","","",aTRegs[i][13],""})
+	Next i
+
+	//Grava no SX1 se ja nao existir
+	DbSelectArea("SX1")
+
+	For i := 1 To Len(aRegs)
+		If !DBSeek(cPerg + aRegs[i,2])
+			RecLock("SX1",.T.)
+			For j := 1 to FCount()
+				If j <= Len(aRegs[i])
+					FieldPut(j,aRegs[i,j])
+				EndIf
+			Next
+			SX1->(MsUnlock())
+            SX1->(DBCommit())
+		EndIf
+	Next i
+Return

@@ -1,0 +1,402 @@
+#INCLUDE "RPTDEF.CH"
+#INCLUDE "FWPrintSetup.ch"
+#INCLUDE "protheus.ch"
+#INCLUDE "tbiconn.ch"
+#INCLUDE "topconn.ch"
+#INCLUDE "colors.ch"
+
+/*/{Protheus.doc} T11E002R8
+Etiqueta de Lote com QR Code (vCard: Lote / Produto / Quantidade)
+
+Segue a mesma arquitetura do T11E002R7:
+  GetFiltro -> tela de perguntas (Produto/Lote/Armazem) e posiciona SB8
+  GetImp    -> escolhe destino (PDF ou impressora do CB5)
+  ImpEtq    -> StartPage + carrega dados + desenha
+  ImpArea   -> layout da etiqueta (cabecalho + LOTE + QR Code)
+
+Fonte de dados: SB8 (saldo por lote). Cliente e' obtido opcionalmente
+via SD3 (TM 499) -> SC2 -> SA1, mesmo caminho do fonte original.
+@author Pedro Montenegro
+@since 10/09/2026
+@version 2410
+@type function
+/*/
+User Function T11E003R9()
+
+	Local aArea    := GetArea()
+	Local cImp     := ""
+	Local lImpPDF  := .F.
+	Local cTempDir := ""
+
+	// Tela de filtros e posicionamento do SB8
+	If ! GetFiltro()
+		RestArea(aArea)
+		Return
+	EndIf
+
+	// Diretorio de saida (mesma logica do fonte de referencia)
+	If (IsBlind() .OR. Select('SX2') <= 0)
+		cTempDir := '\etiquetas\'
+		FWMakeDir(cTempDir)
+	Else
+		cTempDir := GetTempPath()
+	EndIf
+
+	Private cLocal   := cTempDir
+	Private lUltPag  := .T.
+	Private lAdjust  := .F.
+	Private lDisable := .T.
+	Private oPrinter := Nil
+
+	// Dados usados na impressao (populados em GetxDados)
+	Private _cLotCtl  := ""
+	Private _cProd    := ""
+	Private _cDescPrd := ""
+	Private _nQtd     := 0
+	Private _cUM      := ""
+	Private _cCliente := ""
+
+	cImp := GetImp()
+	If Empty(cImp)
+		RestArea(aArea)
+		Return
+	EndIf
+
+	lImpPDF := (Upper(AllTrim(cImp)) == "PDF")
+
+	If ! ExistDir(cTempDir)
+		MakeDir(cTempDir)
+	EndIf
+
+	If ! ExistDir(cTempDir)
+		FWAlertError("Nao foi possivel criar o diretorio " + cTempDir, "ATENCAO")
+		RestArea(aArea)
+		Return
+	EndIf
+
+	oPrinter := FWMSPrinter():New("EtqQR_" + DtoS(dDataBase) + "_" + StrTran(Time(),":",""), IMP_PDF, lAdjust, cLocal, lDisable, , , , , , .F.)
+	oPrinter:cPathPdf := cTempDir
+	oPrinter:SetPortrait()
+	// A6 = 105 x 148 mm. Codigo 70 = DMPAPER_A6 (mesma tabela em que 9 = A4).
+	// Se em algum ambiente antigo o 70 nao for reconhecido, cair para
+	// oPrinter:setPaperSize(11) (A5) ou usar oPrinter:setPaperSize(9) + margens.
+	oPrinter:setPaperSize(70)
+
+	Private oArial8   := TFont():New("Arial",,08,,.F.,,,,,.F.,.F.)
+	Private oArial10  := TFont():New("Arial",,10,,.F.,,,,,.F.,.F.)
+	Private oArial10N := TFont():New("Arial",,10,,.T.,,,,,.F.,.F.)
+	Private oArial12  := TFont():New("Arial",,12,,.F.,,,,,.F.,.F.)
+	Private oArial12N := TFont():New("Arial",,12,,.T.,,,,,.F.,.F.)
+	Private oArial14N := TFont():New("Arial",,14,,.T.,,,,,.F.,.F.)
+	Private oArial16  := TFont():New("Arial",,16,,.F.,,,,,.F.,.F.)
+	Private oArial18N := TFont():New("Arial",,18,,.T.,,,,,.F.,.F.)
+	Private oArial20N := TFont():New("Arial",,20,,.T.,,,,,.F.,.F.)
+	Private oArial24N := TFont():New("Arial",,24,,.T.,,,,,.F.,.F.)
+	Private oArial40N := TFont():New("Arial",,40,,.T.,,,,,.F.,.F.)
+
+	ImpEtq()
+
+	oPrinter:EndPage()
+
+	If lImpPDF
+		oPrinter:Preview()
+	Else
+		oPrinter:SetDevice(IMP_SPOOL)
+		oPrinter:cPrinter := cImp
+		oPrinter:Print()
+	EndIf
+
+	RestArea(aArea)
+Return
+
+/*/{Protheus.doc} GetImp
+Configura o destino da impressao: PDF (preview) ou impressora do CB5.
+/*/
+Static Function GetImp()
+
+	Local cRet     := ""
+	Local aPergs   := {}
+	Local aRet     := {}
+	Local cCodImp  := Space(TamSX3("CB5_CODIGO")[1])
+	Local nTipoImp := 1
+
+	AAdd(aPergs, {2, "Tipo de Saida", nTipoImp, {"PDF", "Impressora"}, 50, "", .F.})
+	AAdd(aPergs, {1, "Impressora", cCodImp, "", ".T.", "CB5", ".T.", 80, .F.})
+
+	If ParamBox(aPergs, "Configuracao de Impressao", @aRet,,,,,,,,.F.,.F.)
+		nTipoImp := aRet[1]
+		cCodImp  := aRet[2]
+		If (ValType(nTipoImp) <> "N")
+			nTipoImp := Val(nTipoImp)
+		EndIf
+		If nTipoImp == 1
+			cRet := "PDF"
+		Else
+			CB5->(DbSetOrder(1))
+			If CB5->(DbSeek(xFilial("CB5") + AllTrim(cCodImp)))
+				cRet := AllTrim(CB5->CB5_PRINTR)
+			EndIf
+		EndIf
+	EndIf
+
+Return cRet
+
+/*/{Protheus.doc} ImpEtq
+Popula variaveis e desenha uma pagina.
+/*/
+Static Function ImpEtq()
+
+	GetxDados()
+
+	oPrinter:StartPage()
+
+	ImpArea()
+
+Return
+
+/*/{Protheus.doc} GetxDados
+Carrega dados do lote a partir do SB8 (ja posicionado em GetFiltro).
+Complementa com SB1 (descricao/UM) e tenta identificar o cliente via
+SD3 (TM 499 - producao) -> SC2 -> SA1, mesmo caminho do T11E002R7.
+/*/
+Static Function GetxDados()
+
+	Local cOP := ""
+
+	// SB8 -> dados basicos do lote
+	_cLotCtl := AllTrim(SB8->B8_LOTECTL)
+	_cProd   := AllTrim(SB8->B8_PRODUTO)
+	_nQtd    := SB8->B8_SALDO
+
+	// SB1 -> descricao e unidade de medida
+	SB1->(DbSetOrder(1))
+	If SB1->(DbSeek(xFilial("SB1") + SB8->B8_PRODUTO))
+		_cDescPrd := AllTrim(SB1->B1_DESC)
+		_cUM      := AllTrim(SB1->B1_UM)
+	EndIf
+
+	// Recupera a OP pelo movimento de producao do lote (SD3 TM 499),
+	// para chegar em SC2 (cliente da OP) e SA1 (nome).
+	BeginSql Alias 'TMPOP'
+		SELECT SD3.D3_OP
+		  FROM %TABLE:SD3% SD3
+		 WHERE SD3.D3_FILIAL  = %xFilial:SD3%
+		   AND SD3.D3_COD     = %Exp:SB8->B8_PRODUTO%
+		   AND SD3.D3_LOTECTL = %Exp:SB8->B8_LOTECTL%
+		   AND SD3.D3_TM      = '499'
+		   AND SD3.%NOTDEL%
+		 ORDER BY SD3.R_E_C_N_O_ DESC
+	EndSQL
+
+	If ! TMPOP->(Eof())
+		cOP := TMPOP->D3_OP
+	EndIf
+	TMPOP->(dbCloseArea())
+
+	If ! Empty(cOP)
+		SC2->(DbSetOrder(1))
+		If SC2->(DbSeek(xFilial("SC2") + cOP))
+			SA1->(DbSetOrder(1))
+			If SA1->(DbSeek(xFilial("SA1") + SC2->C2_XCLIENT + SC2->C2_XLOJA))
+				_cCliente := AllTrim(SA1->A1_NOME)
+			EndIf
+		EndIf
+	EndIf
+
+Return
+
+/*/{Protheus.doc} MntVCard
+Monta o payload vCard 3.0 (RFC 6350) que sera codificado no QR Code.
+Ao ler pelo celular, o leitor exibe uma opcao "Salvar contato" com:
+  - Nome / FN  -> lote
+  - ORG        -> produto + descricao
+  - TITLE      -> quantidade
+  - NOTE       -> string chave=valor concatenada, facil de parsear
+/*/
+Static Function MntVCard()
+
+	Local cCRLF  := Chr(13) + Chr(10)
+	Local cQtd   := AllTrim(Transform(_nQtd, "@E 999,999,999.999999"))
+	Local cOrg   := _cProd
+	Local cVCard := ""
+
+	If ! Empty(_cDescPrd)
+		cOrg += " - " + _cDescPrd
+	EndIf
+
+	cVCard += "BEGIN:VCARD" + cCRLF
+	cVCard += "VERSION:3.0" + cCRLF
+	cVCard += "N:" + _cLotCtl + cCRLF
+	cVCard += "FN:" + _cLotCtl + cCRLF
+	cVCard += "ORG:" + cOrg + cCRLF
+	cVCard += "TITLE:QTD " + cQtd + " " + _cUM + cCRLF
+	cVCard += "NOTE:Lote=" + _cLotCtl + ;
+	          ";Produto=" + _cProd + ;
+	          ";Quantidade=" + cQtd + ;
+	          ";UM=" + _cUM + cCRLF
+	cVCard += "END:VCARD"
+
+Return cVCard
+
+/*/{Protheus.doc} ImpArea
+Desenha o layout da etiqueta:
+  - Cabecalho: nome do cliente (esquerda) + logo Technocoat (direita)
+  - Linha separadora horizontal
+  - Titulo "LOTE-XXXXXX" centralizado, fonte grande
+  - QR Code (vCard) centralizado abaixo do titulo
+  - Rodape com data/hora da impressao
+/*/
+/*/{Protheus.doc} ImpArea
+Desenha o layout da etiqueta em A6 (105 x 148 mm ~ 297 x 420 pt).
+
+  0                        297
+  +--------------------------+   0
+  | LOTE-XXX          [logo] |
+  |--------------------------|  55
+  | (nome do cliente)        |
+  |                          |
+  |         [ QR Code ]      |
+  |                          |
+  |                          |
+  |   Produto: XXXX          |
+  |   Quantidade: NNN UM     |
+  |                          |
+  |     Impresso em ...      |
+  +--------------------------+  420
+/*/
+Static Function ImpArea()
+
+	Local cVCard   := ""
+	Local cLoteTxt := ""
+	Local cProdLin := ""
+
+	// ---- Cabecalho ----
+	// LOTE-XXXXXX a esquerda (substitui o antigo "CLIENTE")
+	cLoteTxt := "LOTE-" + _cLotCtl
+	oPrinter:Say(30, 15, cLoteTxt, oArial18N)
+
+	// Logo Technocoat a direita (dimensoes reduzidas para A6)
+	If File("\data\imagens\logo.jpg")
+		oPrinter:SayBitmap(15, 195, "\data\imagens\logo.jpg", 90, 30)
+	EndIf
+
+	// Linha horizontal separando cabecalho do corpo
+	oPrinter:Line(55, 15, 55, 285)
+
+	// Nome do cliente centralizado logo abaixo do separador
+	oPrinter:SayAlign(65, 15, _cCliente, oArial12N, 270, 18, /*nClrText*/, 2 /*center*/, /*nClrBack*/)
+
+	// ---- QR Code com vCard ----
+	// Em A6 o QR precisa ficar bem menor. Size 180 rende ~200 pt de altura
+	// visivel. Como o QrCode do FWMSPrinter cresce para cima do nRow,
+	// nRow=220 posiciona o topo do QR logo abaixo da linha do cliente.
+	// Coluna centralizada: (297 - 180) / 2 ~ 58
+	cVCard := MntVCard()
+	oPrinter:QrCode(270, 58, cVCard, 180)
+
+	// ---- Legenda abaixo do QR ----
+	// Produto (codigo em negrito, descricao em fonte menor logo abaixo)
+	oPrinter:SayAlign(300, 15, "Produto: " + _cProd, oArial10N, 270, 14, , 2, )
+	If ! Empty(_cDescPrd)
+		oPrinter:SayAlign(315, 15, _cDescPrd, oArial8, 270, 12, , 2, )
+	EndIf
+
+	cProdLin := "Quantidade: " + AllTrim(Transform(_nQtd, "@E 999,999,999.999999")) + " " + _cUM
+	oPrinter:SayAlign(335, 15, cProdLin, oArial10N, 270, 14, , 2, )
+
+	// ---- Rodape ----
+	oPrinter:SayAlign(400, 15, "Impresso em " + DtoC(dDataBase) + " " + Time(), oArial8, 270, 12, , 2, )
+
+Return
+
+/*/{Protheus.doc} GetFiltro
+Monta e exibe a tela de filtros (Produto/Lote/Armazem) e posiciona
+o SB8 no registro correspondente. Retorna .T. em caso de sucesso.
+/*/
+Static Function GetFiltro()
+
+	Local lRet    := .F.
+	Local cAlias  := ""
+	Local cQuery  := ""
+	Local cPerg   := "ETQ02R8"
+	Local nRecSB8 := 0
+
+	ValPerg(cPerg)
+	Pergunte(cPerg, .F.)
+
+	If ! Pergunte(cPerg, .T.)
+		Return .F.
+	EndIf
+
+	cQuery := "SELECT SB8.R_E_C_N_O_ RECNOSB8 "
+	cQuery += "  FROM " + RetSqlName("SB8") + " SB8 "
+	cQuery += " WHERE SB8.B8_FILIAL  = '" + xFilial("SB8") + "' "
+	cQuery += "   AND SB8.B8_PRODUTO = '" + MV_PAR01 + "' "
+	cQuery += "   AND SB8.B8_LOTECTL = '" + MV_PAR02 + "' "
+	cQuery += "   AND SB8.B8_LOCAL   = '" + MV_PAR03 + "' "
+	cQuery += "   AND SB8.D_E_L_E_T_ = ' ' "
+
+	cAlias := MPSysOpenQuery(cQuery)
+
+	If (cAlias)->(Eof())
+		(cAlias)->(DbCloseArea())
+		FWAlertWarning("Nenhum registro encontrado para os parametros informados.", "Atencao")
+		Return .F.
+	EndIf
+
+	nRecSB8 := (cAlias)->RECNOSB8
+	(cAlias)->(DbCloseArea())
+
+	If Empty(nRecSB8) .OR. nRecSB8 <= 0
+		FWAlertWarning("Lote localizado, porem sem RECNO valido no SB8.", "Atencao")
+		Return .F.
+	EndIf
+
+	SB8->(DbGoTo(nRecSB8))
+
+	If SB8->(Eof()) .OR. Empty(SB8->B8_PRODUTO)
+		FWAlertWarning("Nao foi possivel posicionar o lote no SB8 (RECNO " + cValToChar(nRecSB8) + ").", "Atencao")
+		Return .F.
+	EndIf
+
+	lRet := .T.
+
+Return lRet
+
+/*/{Protheus.doc} ValPerg
+Cria/atualiza o grupo de perguntas (SX1) da tela de filtros.
+/*/
+Static Function ValPerg(cPerg)
+
+	Local i      := 0
+	Local j      := 0
+	Local aTRegs := {}
+	Local aRegs  := {}
+
+	cPerg := Padr(cPerg, 10)
+
+	/*01*/aAdd(aTRegs,{"Produto","C", GetSX3Cache("B8_PRODUTO", "X3_TAMANHO"), 0, 0,"G","","","","","","","SB8"})
+	/*02*/aAdd(aTRegs,{"Lote"   ,"C", GetSX3Cache("B8_LOTECTL", "X3_TAMANHO"), 0, 0,"G","","","","","","","SB8ETQ"})
+	/*03*/aAdd(aTRegs,{"Armazem","C", GetSX3Cache("B8_LOCAL"  , "X3_TAMANHO"), 0, 0,"G","","","","","","",""})
+
+	For i := 1 To Len(aTRegs)
+		aAdd(aRegs,{cPerg,StrZero(i,2),aTRegs[i][1],aTRegs[i][1],aTRegs[i][1],"mv_ch"+AllTrim(Str(i)),aTRegs[i][2],aTRegs[i][3],aTRegs[i][4],aTRegs[i][5],aTRegs[i][6],aTRegs[i][7],;
+		"mv_par"+StrZero(i,2),aTRegs[i][8],"","","","",aTRegs[i][9],"","","","",aTRegs[i][10],"","","","",aTRegs[i][11],"","","","",aTRegs[i][12],"","","",aTRegs[i][13],""})
+	Next i
+
+	DbSelectArea("SX1")
+
+	For i := 1 To Len(aRegs)
+		If ! DbSeek(cPerg + aRegs[i,2])
+			RecLock("SX1",.T.)
+			For j := 1 To FCount()
+				If j <= Len(aRegs[i])
+					FieldPut(j,aRegs[i,j])
+				EndIf
+			Next j
+			SX1->(MsUnlock())
+			SX1->(DbCommit())
+		EndIf
+	Next i
+
+Return
