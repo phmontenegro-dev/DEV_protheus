@@ -7,8 +7,8 @@
 
 /*/{Protheus.doc} xpcp002a
 Etiqueta de Produção
-@author Claudio Bozzi
-@since 18/07/2025
+@author Pedro Montenegro
+@since 12/11/2026
 @version 2410
 @type function
 /*/
@@ -177,6 +177,7 @@ Return
 Static Function GetxDados()
 
 	Local lTemCliOP := .F.
+	Local lFoundSA1 := .F.
 
 	SC2->(DbSetOrder(1))
 	SC2->(DbSeek(xFilial("SC2") + SH6->H6_OP))
@@ -212,7 +213,8 @@ Static Function GetxDados()
 	If ! TMPSA7->(Eof())
 		SA7->(DbGoTo(TMPSA7->RECNOSA7))
 	Else
-		SA7->(DbGoTo(0))
+		// Força SA7 para EOF - fields A7_CODCLI/A7_XDESCEX/A7_CLIENTE retornam vazio
+		SA7->(DbGoTo(SA7->(LastRec()) + 1))
 	EndIf
 
 	TMPSA7->(DbCloseArea())
@@ -220,11 +222,17 @@ Static Function GetxDados()
 	// Posiciona SA1:
 	// - Se a OP tem cliente: usa o cliente da OP (SC2)
 	// - Senão, se a SA7 encontrou vínculo: usa o cliente da SA7 (fallback)
+	// - Se nenhum: força EOF para que A1_NOME retorne vazio (não trazer cliente aleatório)
 	SA1->(DbSetOrder(1))
 	If lTemCliOP
-		SA1->(DbSeek(xFilial("SA1") + SC2->C2_XCLIENT + SC2->C2_XLOJA))
+		lFoundSA1 := SA1->(DbSeek(xFilial("SA1") + SC2->C2_XCLIENT + SC2->C2_XLOJA))
 	ElseIf ! Empty(SA7->A7_CLIENTE)
-		SA1->(DbSeek(xFilial("SA1") + SA7->A7_CLIENTE + SA7->A7_LOJA))
+		lFoundSA1 := SA1->(DbSeek(xFilial("SA1") + SA7->A7_CLIENTE + SA7->A7_LOJA))
+	EndIf
+
+	If ! lFoundSA1
+		// Força SA1 para EOF - evita que fique posicionado no primeiro registro da tabela
+		SA1->(DbGoTo(SA1->(LastRec()) + 1))
 	EndIf
 
 	BeginSql Alias 'TMPSD3'
@@ -378,12 +386,15 @@ Local nYDados    := 925    // fim da seção Dados Técnicos
 	If Empty(cAux)
 		cAux := "---"
 	EndIf
-	oPrinter:Say(nYCliente + 75, nColMeia + 20, cAux, oArial30N)
+	oPrinter:Say(nYCliente + 55, nColMeia + 20, cAux, oArial30N)
 
-	// BRAZIL / MADE IN BRAZIL + ícones (largura reduzida p/ não esticar os círculos)
-	oPrinter:Say(nYCodigos - 55, nColMeia + 55, "BRAZIL/MADE IN BRAZIL", oArial11N)
+	// Texto de origem em duas linhas + ícones no fim da seção
+	// Linha 1 (regular): empresa produtora
+	// Linha 2 (negrito): origem do produto
+	oPrinter:Say(nYCodigos - 70, nColMeia + 20, "Produzido por Technocoat Artefatos de Papel Ltda.", oArial10)
+	oPrinter:Say(nYCodigos - 55, nColMeia + 20, "Origem BRASIL / Made in BRAZIL", oArial10N)
 	If File("\data\imagens\icones.jpg")
-		oPrinter:SayBitmap(nYCodigos - 42, nColMeia + 90, "\data\imagens\icones.jpg", 120, 38)
+		oPrinter:SayBitmap(nYCodigos - 40, nColMeia + 90, "\data\imagens\icones.jpg", 120, 38)
 	EndIf
 
 	oPrinter:Line(nYCodigos, nColIni, nYCodigos, nColFim, ,"-9")
